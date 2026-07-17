@@ -1,0 +1,15 @@
+Scene: intro
+This is a test visual novel scene.
+Character: Alice
+Sprite: assets/Images/alice_sprite.png
+Voice: assets/Audio/alice_voice.wav
+
+Alice speaks her first lines.
+
+Scene: ending
+This is the ending scene.
+Character: Bob
+Sprite: assets/Images/bob_sprite.png
+Voice: assets/Audio/bob_voice.wav
+
+Bob explains the conclusion.

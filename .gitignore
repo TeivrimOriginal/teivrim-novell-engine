@@ -1,0 +1,9 @@
+build/*.o
+build/*.exe
+build/assets/
+projects.dat
+new_file.txt
+new_material.mat
+*.swp
+.DS_Store
+Thumbs.db
