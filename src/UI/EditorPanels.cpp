@@ -513,6 +513,7 @@ void TimelinePanel::Draw(GraphicsAPI* gfx) { DrawFrame(gfx); }
 
 void TimelinePanel::Draw(GraphicsAPI* gfx, const std::vector<EditorObject>& objects, int selectedIndex, int currentTick) {
     DrawFrame(gfx);
+    gfx->DrawRect(contentRect.x, contentRect.y, contentRect.w, contentRect.h, 30, 30, 35);
     int headerH = 20, rowH = 22, tickW = 24;
     int y = contentRect.y + headerH;
     int viewTicks = contentRect.w / tickW;
