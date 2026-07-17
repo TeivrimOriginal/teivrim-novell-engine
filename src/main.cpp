@@ -190,7 +190,7 @@ int main() {
             gfx.BeginFrame();
             editor.Layout(gfx.GetWidth(), gfx.GetHeight());
             editor.Draw(&gfx);
-            gfx.RenderText("ESC=back R=rect E=ellipse T=text S=sprite F1=debug", 10, gfx.GetHeight() - 16, 100, 100, 120);
+            gfx.RenderText("ESC=back R=rect E=ellipse T=text S=sprite [=snap- ]=snap+ F1=debug", 10, gfx.GetHeight() - 16, 100, 100, 120);
             gfx.EndFrame();
         }
 

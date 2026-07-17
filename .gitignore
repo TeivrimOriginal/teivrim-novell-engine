@@ -1,6 +1,8 @@
 build/*.o
 build/*.exe
+build/*.txt
 build/assets/
+dist/
 projects.dat
 new_file.txt
 new_material.mat

@@ -78,12 +78,15 @@ struct EditorPanel {
 struct HierarchyPanel : EditorPanel {
     std::vector<EditorObject> objects;
     int selectedIndex, scrollOffset;
+    std::vector<int> multiSel;
     HierarchyPanel();
     void Draw(GraphicsAPI* gfx) override;
     bool HandleClick(int mx, int my) override;
     int AddObject(const std::string& name, const std::string& type, int px = -1, int py = -1);
     void DeleteSelected();
     void ToggleVisible();
+    void SyncMulti();
+    bool IsMulti(int i) const;
 };
 
 struct InspectorPanel : EditorPanel {
@@ -159,6 +162,11 @@ struct TimelinePanel : EditorPanel {
     void HandleDrag(int mx, int my, std::vector<EditorObject>& objects);
 };
 
+struct EditorSnapshot {
+    std::vector<EditorObject> objects;
+    std::vector<ScriptLine> lines;
+};
+
 struct EditorWindow {
     HierarchyPanel hierarchy;
     InspectorPanel inspector;
@@ -169,9 +177,9 @@ struct EditorWindow {
 
     int currentTick;
 
-    Rect splitterR1, splitterR2, splitterR3;
+    Rect splitterR1, splitterR2, splitterR3, splitterR4;
     int dragSplitter;
-    float leftRatio, rightRatio, bottomRatio;
+    float leftRatio, rightRatio, bottomRatio, timelineRatio;
 
     ContextMenu ctxMenu;
 
@@ -188,6 +196,9 @@ struct EditorWindow {
     // Preview mode
     bool previewMode;
     int previewLine;
+
+    int snapSize;
+    std::vector<EditorSnapshot> undoStack, redoStack;
 
     EditorWindow();
     void Layout(int winW, int winH);
@@ -208,4 +219,7 @@ struct EditorWindow {
     void DrawSplitters(GraphicsAPI* gfx);
     void DrawDebugOverlay(GraphicsAPI* gfx);
     void HandleFileDrop(const std::string& filePath);
+    void PushUndo();
+    void Undo();
+    void Redo();
 };

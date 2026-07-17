@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstring>
 #include <cstdio>
+#include <cctype>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -13,6 +14,16 @@ namespace fs = std::filesystem;
 
 // ========== HIERARCHY ==========
 HierarchyPanel::HierarchyPanel() : EditorPanel("Hierarchy"), selectedIndex(-1), scrollOffset(0) {}
+
+bool HierarchyPanel::IsMulti(int i) const {
+    for (auto& s : multiSel) if (s == i) return true;
+    return false;
+}
+
+void HierarchyPanel::SyncMulti() {
+    multiSel.clear();
+    if (selectedIndex >= 0 && selectedIndex < (int)objects.size()) multiSel.push_back(selectedIndex);
+}
 
 void HierarchyPanel::Draw(GraphicsAPI* gfx) {
     DrawFrame(gfx);
@@ -22,6 +33,7 @@ void HierarchyPanel::Draw(GraphicsAPI* gfx) {
         if (y + 24 > maxY) break;
         int rowX = contentRect.x + 2, rowW = contentRect.w - 4;
         if (i == selectedIndex) gfx->DrawRect(rowX, y, rowW, 22, 55, 80, 120);
+        else if (IsMulti(i)) gfx->DrawRect(rowX, y, rowW, 22, 50, 60, 90);
         std::string label = objects[i].name;
         if (label.size() > 20) label = label.substr(0, 19) + ".";
         gfx->RenderText(label, rowX + 4, y + 2, objects[i].visible ? 200 : 100, objects[i].visible ? 200 : 100, objects[i].visible ? 220 : 120);
@@ -41,22 +53,33 @@ bool HierarchyPanel::HandleClick(int mx, int my) {
     int tby = rect.y + rect.h - 24;
     if (my >= tby && my <= tby + 23 && mx >= rect.x && mx <= rect.x + rect.w) {
         int bw = std::max(40, (rect.w - 6) / 4);
-        if (mx < rect.x + 6 + bw) { AddObject("Rectangle", "rectangle"); return true; }
-        if (mx < rect.x + 8 + bw*2) { AddObject("Ellipse", "ellipse"); return true; }
-        if (mx < rect.x + 10 + bw*3) { AddObject("Text", "text"); return true; }
-        AddObject("Sprite", "sprite"); return true;
+        if (mx < rect.x + 6 + bw) { AddObject("Rectangle", "rectangle"); SyncMulti(); return true; }
+        if (mx < rect.x + 8 + bw*2) { AddObject("Ellipse", "ellipse"); SyncMulti(); return true; }
+        if (mx < rect.x + 10 + bw*3) { AddObject("Text", "text"); SyncMulti(); return true; }
+        AddObject("Sprite", "sprite"); SyncMulti(); return true;
     }
     if (!contentRect.Contains(mx, my)) return false;
     int y = contentRect.y + 4;
     int maxY = rect.y + rect.h - 26;
+#ifdef _WIN32
+    bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+#else
+    bool ctrl = false;
+#endif
     for (int i = scrollOffset; i < (int)objects.size(); i++) {
         if (y + 24 > maxY) break;
         int rowX = contentRect.x + 2, rowW = contentRect.w - 4;
         if (mx >= rowX && mx <= rowX + rowW && my >= y && my <= y + 22) {
             int rw = rowW / 3;
-            if (mx >= rowX + rowW - rw && mx < rowX + rowW) { objects.erase(objects.begin() + i); if (selectedIndex >= (int)objects.size()) selectedIndex = (int)objects.size() - 1; return true; }
+            if (mx >= rowX + rowW - rw && mx < rowX + rowW) { objects.erase(objects.begin() + i); multiSel.clear(); if (selectedIndex >= (int)objects.size()) selectedIndex = (int)objects.size() - 1; return true; }
             if (mx >= rowX + rowW - rw*2 && mx < rowX + rowW - rw) { objects[i].visible = !objects[i].visible; return true; }
-            selectedIndex = i; return true;
+            if (ctrl) {
+                if (IsMulti(i)) { multiSel.erase(std::remove(multiSel.begin(), multiSel.end(), i), multiSel.end()); }
+                else { multiSel.push_back(i); selectedIndex = i; }
+            } else {
+                selectedIndex = i; SyncMulti();
+            }
+            return true;
         }
         y += 24;
     }
@@ -76,18 +99,29 @@ int HierarchyPanel::AddObject(const std::string& name, const std::string& type, 
     if (type == "background") { obj.colorR = 30; obj.colorG = 40; obj.colorB = 50; obj.sizeW = 800; obj.sizeH = 600; }
     objects.push_back(obj);
     selectedIndex = (int)objects.size() - 1;
+    SyncMulti();
     return selectedIndex;
 }
 
 void HierarchyPanel::DeleteSelected() {
-    if (selectedIndex < 0 || selectedIndex >= (int)objects.size()) return;
-    objects.erase(objects.begin() + selectedIndex);
+    if (objects.empty()) return;
+    // Delete all multi-selected (including primary)
+    if (!multiSel.empty()) {
+        std::sort(multiSel.begin(), multiSel.end(), std::greater<int>());
+        for (int idx : multiSel) if (idx >= 0 && idx < (int)objects.size()) objects.erase(objects.begin() + idx);
+        multiSel.clear();
+    } else if (selectedIndex >= 0 && selectedIndex < (int)objects.size()) {
+        objects.erase(objects.begin() + selectedIndex);
+    }
     if (selectedIndex >= (int)objects.size()) selectedIndex = (int)objects.size() - 1;
 }
 
 void HierarchyPanel::ToggleVisible() {
-    if (selectedIndex < 0 || selectedIndex >= (int)objects.size()) return;
-    objects[selectedIndex].visible = !objects[selectedIndex].visible;
+    if (!multiSel.empty()) {
+        for (int idx : multiSel) if (idx >= 0 && idx < (int)objects.size()) objects[idx].visible = !objects[idx].visible;
+    } else if (selectedIndex >= 0 && selectedIndex < (int)objects.size()) {
+        objects[selectedIndex].visible = !objects[selectedIndex].visible;
+    }
 }
 
 // ========== INSPECTOR ==========
@@ -176,7 +210,11 @@ void AssetBrowserPanel::ScanDirectory(const std::string& dir) {
     printf("[ScanDir] %s cwd=", dir.c_str());
     char cwd[260]; GetCurrentDirectoryA(260, cwd); printf("%s\n", cwd);
     files.clear();
-    if (!fs::exists(dir)) { printf("[ScanDir] dir does not exist!\n"); return; }
+    if (!fs::exists(dir)) {
+        printf("[ScanDir] dir does not exist! Attempting to create...\n");
+        fs::create_directories(dir);
+        if (!fs::exists(dir)) { printf("[ScanDir] could not create directory!\n"); return; }
+    }
     // Add ".." if not at root
     if (dir != "assets/Images") files.push_back("..");
     int count = 0;
@@ -228,6 +266,13 @@ void AssetBrowserPanel::Draw(GraphicsAPI* gfx) {
             }
             bool sel = (selectedAsset && idx == selAssetIndex);
             if (sel && !isDir) { gfx->DrawRect(x - 1, y - 1, cellW - 6, 72, 100, 200, 100); gfx->DrawRect(x - 1, y - 1, cellW - 6, 72, 255, 255, 255); }
+            // Image thumbnail for image files
+            if (!isDir && files[idx] != "..") {
+                std::string ext = files[idx].substr(files[idx].find_last_of(".") + 1);
+                for (auto& c : ext) c = (char)tolower(c);
+                if (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "bmp" || ext == "gif")
+                    gfx->DrawImage(x + 2, y + 2, cellW - 12, 48, fullPath);
+            }
             // Rename editing
             if (editingField == 1 && editingIndex == idx) {
                 gfx->DrawRect(x + 2, y + 28, cellW - 12, 20, 80, 60, 40);
@@ -235,7 +280,7 @@ void AssetBrowserPanel::Draw(GraphicsAPI* gfx) {
             } else {
                 std::string n = files[idx]; if (n.size() > 12) n = n.substr(0, 11) + ".";
                 int tc = isDir ? 180 : 180;
-                gfx->RenderText(n, x + 4, y + (isDir ? 24 : 4), isDir ? 180 : 180, isDir ? 200 : 180, isDir ? 255 : 200);
+                gfx->RenderText(n, x + 4, y + (isDir ? 24 : 52), 180, 180, 200);
             }
         }
         y += 78;
@@ -545,13 +590,14 @@ void TimelinePanel::HandleDrag(int mx, int my, std::vector<EditorObject>& object
 EditorWindow::EditorWindow()
     : hierarchy(), inspector(), assetBrowser(), scenePanel(), scriptPanel(), timeline(),
       currentTick(0),
-      dragSplitter(-1), leftRatio(0.20f), rightRatio(0.80f), bottomRatio(0.50f),
+      dragSplitter(-1), leftRatio(0.20f), rightRatio(0.80f), bottomRatio(0.50f), timelineRatio(0.12f),
       activeMenu(-1), menuHovered(-1), showDebug(false),
       scenePanning(false), panStartX(0), panStartY(0), panStartPanX(0), panStartPanY(0), lastMsgTimer(0),
-      previewMode(false), previewLine(0) { lastMsg = "EDITOR LOADED"; lastMsgTimer = 9999; }
+      previewMode(false), previewLine(0), snapSize(20) { lastMsg = "EDITOR LOADED"; lastMsgTimer = 9999; }
 
 void EditorWindow::Layout(int winW, int winH) {
-    int visSpl = 4, hitSpl = 8, menuH = 24, timelineH = 80;
+    int visSpl = 4, hitSpl = 8, menuH = 24;
+    int timelineH = std::max(40, (int)(winH * timelineRatio));
     int vPos = (int)(winW * leftRatio);
     int vPos2 = (int)(winW * rightRatio);
     int hPos = (int)(winH * bottomRatio);
@@ -570,12 +616,14 @@ void EditorWindow::Layout(int winW, int winH) {
     splitterR1 = {vPos - 2, menuH, hitSpl, hPos - menuH};
     splitterR2 = {vPos2 - 2, menuH, hitSpl, winH - menuH - timelineH};
     splitterR3 = {0, hPos - 2, winW, hitSpl};
+    splitterR4 = {0, winH - timelineH - 2, winW, hitSpl};
 }
 
 int EditorWindow::HitTestSplitter(int mx, int my) {
     if (splitterR1.Contains(mx, my)) return 1;
     if (splitterR2.Contains(mx, my)) return 2;
     if (splitterR3.Contains(mx, my)) return 3;
+    if (splitterR4.Contains(mx, my)) return 4;
     return -1;
 }
 
@@ -716,6 +764,7 @@ void EditorWindow::DrawSplitters(GraphicsAPI* gfx) {
     gfx->DrawRect(splitterR1.x + 2, splitterR1.y, 4, splitterR1.h, 50, 50, 60);
     gfx->DrawRect(splitterR2.x + 2, splitterR2.y, 4, splitterR2.h, 50, 50, 60);
     gfx->DrawRect(splitterR3.x, splitterR3.y + 2, splitterR3.w, 4, 50, 50, 60);
+    gfx->DrawRect(splitterR4.x, splitterR4.y + 2, splitterR4.w, 4, 50, 50, 60);
 }
 
 void EditorWindow::DrawDebugOverlay(GraphicsAPI* gfx) {
@@ -732,6 +781,8 @@ void EditorWindow::DrawDebugOverlay(GraphicsAPI* gfx) {
     gfx->DrawRect(splitterR1.x, splitterR1.y, splitterR1.w, splitterR1.h, 255, 255, 255);
     gfx->DrawRect(splitterR2.x, splitterR2.y, splitterR2.w, splitterR2.h, 255, 255, 255);
     gfx->DrawRect(splitterR3.x, splitterR3.y, splitterR3.w, splitterR3.h, 255, 255, 255);
+    gfx->DrawRect(splitterR4.x, splitterR4.y, splitterR4.w, splitterR4.h, 255, 255, 255);
+    outline(timeline.rect, 200, 100, 200);
     int ly = 4;
     auto info = [&](const std::string& l, const std::string& v) { gfx->RenderText(l + ": " + v, 4, ly, 200, 200, 200); ly += 14; };
     info("Objects", std::to_string(hierarchy.objects.size()));
@@ -876,7 +927,9 @@ void EditorWindow::HandleMenuClick(int mx, int my) {
                 int ni = hierarchy.AddObject(src.name + "_copy", src.type, src.posX + 20, src.posY + 20);
                 hierarchy.objects[ni].sizeW = src.sizeW; hierarchy.objects[ni].sizeH = src.sizeH; hierarchy.objects[ni].visible = src.visible;
                 SyncSelection();
-            } else if (act == "Preview...") {
+            } else if (act == "Undo") { printf("  -> Undo\n"); Undo(); }
+            else if (act == "Redo") { printf("  -> Redo\n"); Redo(); }
+            else if (act == "Preview...") {
                 printf("  -> Preview\n");
                 if (!scriptPanel.lines.empty()) { previewMode = true; previewLine = 0; }
             } else if (act == "Exit") { exit(0); }
@@ -886,6 +939,7 @@ void EditorWindow::HandleMenuClick(int mx, int my) {
 }
 
 void EditorWindow::HandleClick(int mx, int my) {
+    PushUndo();
     if (previewMode) {
         currentTick++;
         return;
@@ -1112,6 +1166,12 @@ void EditorWindow::HandleDrag(int mx, int my) {
         if (bottomRatio > 0.90f) bottomRatio = 0.90f;
         return;
     }
+    if (dragSplitter == 4) {
+        timelineRatio = (float)(winH - my) / winH;
+        if (timelineRatio < 0.04f) timelineRatio = 0.04f;
+        if (timelineRatio > 0.50f) timelineRatio = 0.50f;
+        return;
+    }
     if (scenePanning && scenePanel.contentRect.Contains(mx, my)) {
         scenePanel.panX = panStartPanX + (mx - panStartX);
         scenePanel.panY = panStartPanY + (my - panStartY);
@@ -1123,7 +1183,7 @@ void EditorWindow::HandleDrag(int mx, int my) {
         int adx = (int)(dx / scenePanel.zoom), ady = (int)(dy / scenePanel.zoom);
         int snap = 1;
 #ifdef _WIN32
-        if (GetAsyncKeyState(VK_SHIFT) & 0x8000) snap = 20;
+        if (GetAsyncKeyState(VK_SHIFT) & 0x8000) snap = snapSize;
 #endif
         switch (scenePanel.activeGizmo) {
             case GIZMO_MOVE:
@@ -1183,11 +1243,15 @@ void EditorWindow::HandleKey(int key) {
     if (scriptPanel.editingField) { scriptPanel.HandleKey(key); return; }
     if (assetBrowser.editingField) { assetBrowser.HandleKey(key); return; }
     if (key == VK_F1) { showDebug = !showDebug; return; }
-    if (key == VK_DELETE && hierarchy.selectedIndex >= 0) { hierarchy.DeleteSelected(); SyncSelection(); return; }
+    if (key == VK_DELETE && hierarchy.selectedIndex >= 0) { PushUndo(); hierarchy.DeleteSelected(); SyncSelection(); return; }
     if (key == 'R' || key == 'r') { AddShape("rectangle", scenePanel.contentRect.x + 100, scenePanel.contentRect.y + 100); return; }
     if (key == 'E' || key == 'e') { AddShape("ellipse", scenePanel.contentRect.x + 200, scenePanel.contentRect.y + 150); return; }
     if (key == 'T' || key == 't') { AddShape("text", scenePanel.contentRect.x + 300, scenePanel.contentRect.y + 200); return; }
     if (key == 'S' || key == 's') { AddShape("sprite", scenePanel.contentRect.x + 100, scenePanel.contentRect.y + 300); return; }
+    if (key == 'Z' && (GetAsyncKeyState(VK_CONTROL) & 0x8000)) { Undo(); return; }
+    if (key == 'Y' && (GetAsyncKeyState(VK_CONTROL) & 0x8000)) { Redo(); return; }
+    if (key == VK_OEM_4) { snapSize = std::max(1, snapSize - 5); lastMsg = "Snap: " + std::to_string(snapSize); lastMsgTimer = 60; return; } // [
+    if (key == VK_OEM_6) { snapSize += 5; lastMsg = "Snap: " + std::to_string(snapSize); lastMsgTimer = 60; return; } // ]
     if (key == 'A' || key == 'a') {
         std::ofstream("assets/Images/test_asset.png").close();
         assetBrowser.ScanDirectory();
@@ -1195,6 +1259,37 @@ void EditorWindow::HandleKey(int key) {
         lastMsgTimer = 120;
         return;
     }
+}
+
+void EditorWindow::PushUndo() {
+    if ((int)undoStack.size() > 50) undoStack.erase(undoStack.begin());
+    EditorSnapshot s;
+    s.objects = hierarchy.objects;
+    s.lines = scriptPanel.lines;
+    undoStack.push_back(s);
+    redoStack.clear();
+}
+
+void EditorWindow::Undo() {
+    if (undoStack.empty()) return;
+    EditorSnapshot cur; cur.objects = hierarchy.objects; cur.lines = scriptPanel.lines;
+    redoStack.push_back(cur);
+    hierarchy.objects = undoStack.back().objects;
+    scriptPanel.lines = undoStack.back().lines;
+    undoStack.pop_back();
+    SyncSelection();
+    lastMsg = "Undo"; lastMsgTimer = 60;
+}
+
+void EditorWindow::Redo() {
+    if (redoStack.empty()) return;
+    EditorSnapshot cur; cur.objects = hierarchy.objects; cur.lines = scriptPanel.lines;
+    undoStack.push_back(cur);
+    hierarchy.objects = redoStack.back().objects;
+    scriptPanel.lines = redoStack.back().lines;
+    redoStack.pop_back();
+    SyncSelection();
+    lastMsg = "Redo"; lastMsgTimer = 60;
 }
 
 void EditorWindow::HandleFileDrop(const std::string& filePath) {
